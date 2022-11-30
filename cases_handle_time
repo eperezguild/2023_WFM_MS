@@ -1,0 +1,376 @@
+WITH sf_users AS (
+    SELECT
+       sf_user.current_user_id,
+       sf_user.start_date,
+       sf_user.end_date,
+       sf_user.snap_user_name,
+       sf_user.snap_profile_name,
+       sf_user.manager_name,
+       sf_user.managers_manager_name
+FROM BI_BASE.ETL.SF_USER_PROFILE_SNAPSHOT sf_user
+),
+
+presence_code_data AS ( --WARNING - USING 1 EXAMPLE RIGHT NOW!! Going to see if I can join by checking if between dates
+    SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', status_start_date::TIMESTAMP) AS DATE) as created_date,
+    CONVERT_TIMEZONE('UTC', 'America/Denver', status_start_date::TIMESTAMP) as status_start_date,
+    CONVERT_TIMEZONE('UTC', 'America/Denver', status_end_date::TIMESTAMP) as status_end_date,
+    team_name,
+    user_profile_name,
+    user_name,
+    service_presence_status,service_presence_status_developer_name,
+    shrinkage_utilization,
+    is_away,
+    id,
+    owner_id,
+    last_modified_by_id,
+    name,
+    user_id,
+    service_presence_status_id,
+    is_deleted
+
+FROM BI_BASE.ETL.STG_SF_CLOUD__USER_SERVICE_PRESENCE
+WHERE user_name = 'Maria Daves' AND CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', created_date::TIMESTAMP) AS DATE)  = '2022-11-01'
+),
+
+--base table here for case_data
+case_raw_data AS (
+SELECT
+        CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', sf_case.created_date::TIMESTAMP) AS DATE) AS created_date,
+        CONVERT_TIMEZONE('UTC', 'America/Denver', sf_case.created_date::TIMESTAMP) AS created_datetime,
+        sf_case.created_by_id,
+        CONVERT_TIMEZONE('UTC', 'America/Denver', sf_case.last_modified_date::TIMESTAMP) AS last_modified_date,
+        sf_case.last_modified_by_id,
+        sf_case.sla_exit_date,
+        sf_case.id AS case_id,
+        sf_case.case_number,
+        sf_case.origin,
+        sf_case.type,
+        sf_case.status,
+        sf_case.reason,
+        sf_case.subject,
+        sf_case.is_closed,
+        sf_case.closed_case_c,
+        sf_case.preferred_language_c,
+        sf_case.sub_type_c,
+        sf_case.is_escalated,
+        sf_case.owner_id,
+        sf_case.employee_id_c,
+        sf_case.subsidiary_name_c,
+        sf_case.employer_partner_c,
+        sf_case.is_clone_c,
+        sf_case.zendesk_support_ticket_id_c,
+        (CASE WHEN sf_case.zendesk_support_ticket_id_c IS NULL THEN 'Not Zendesk'
+              WHEN (sf_case.zendesk_support_ticket_id_c IS NOT NULL AND origin = 'Chat') THEN 'Zendesk Chat'
+              ELSE 'Zendesk Ticket' END) AS zendesk_filter
+FROM GUILD.SALESFORCE_CLOUD.CASE sf_case),
+
+--Made a base table here for case_history data, joined with sf_user to easily see teams
+case_history_raw AS (
+    SELECT
+        CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', case_history.created_date::TIMESTAMP) AS DATE) AS created_date,
+        CONVERT_TIMEZONE('UTC', 'America/Denver', case_history.created_date::TIMESTAMP) AS created_datetime,
+        case_history.id AS case_history_id,
+        case_history.case_id,
+        case_data.case_number,
+        case_history.created_by_id,
+        case_history.is_deleted,
+        case_history.field,
+        case_history.data_type,
+        case_history.old_value,
+        case_history.new_value,
+        case_history._fivetran_synced
+    FROM GUILD.SALESFORCE_CLOUD.case_history case_history
+    LEFT JOIN (SELECT DISTINCT case_number, case_id FROM case_raw_data) case_data USING(case_id)),
+
+--FILTER A1
+status_text_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Status' AND data_type = 'Text'
+),
+
+--FILTER A2
+status_de_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Status' AND data_type = 'DynamicEnum'
+),
+
+--FILTER B1
+owner_text_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Owner' AND data_type = 'Text'
+),
+
+--FILTER B2
+owner_de_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Owner' AND data_type = 'DynamicEnum'
+),
+
+--FILTER C1
+res_text_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Resolution_Type__c' AND data_type = 'Text'
+),
+
+--FILTER C2
+res_de_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Resolution_Type__c' AND data_type = 'DynamicEnum'
+),
+
+--FILTER D1
+sla_start_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'SlaStartDate' AND data_type = 'DateTime'
+),
+
+--FILTER D2
+sla_close_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Soft_Close_Time_Stamp__c' AND data_type = 'DateTime'
+),
+
+--FILTER F1
+origin_text_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Origin' AND data_type = 'Text'
+),
+
+--FILTER F2
+origin_de_filter AS (
+    SELECT DISTINCT *
+    FROM case_history_raw
+    WHERE field = 'Origin' AND data_type = 'DynamicEnum'
+),
+
+---END Case_history data filters
+case_step_1 AS ( --START | Here I am getting distinct case history timestamps and then adding all the other data
+    SELECT *
+    FROM
+        (SELECT
+            row_number() OVER (PARTITION BY case_id,created_datetime ORDER BY created_datetime) AS rank_number, -- Using this to filter duplicates time stamps. Further analyses on why this is happening. An example is case_number '03994275'
+            distinct_case_history.*,
+
+            origin_de_filter.old_value AS origin_de_old,
+            origin_de_filter.new_value AS origin_de_new,
+
+            status_de_filter.old_value AS status_de_old,
+            status_de_filter.new_value AS status_de_new,
+
+            lag(owner_text_filter.old_value) OVER (PARTITION BY case_id ORDER BY created_datetime) AS owner_text_old_lag, --Using this lag to get the queue assignment on the first status update of the case by person
+            lag(owner_text_filter.new_value) OVER (PARTITION BY case_id ORDER BY created_datetime) AS owner_text_new_lag,
+
+            lead(owner_text_filter.old_value) OVER (PARTITION BY case_id ORDER BY created_datetime) AS owner_text_old_lead, --Using this lag to get the queue assignment on the first status update of the case by person
+            lead(owner_text_filter.new_value) OVER (PARTITION BY case_id ORDER BY created_datetime) AS owner_text_new_lead,
+
+            owner_text_filter.old_value AS owner_text_old,
+            owner_text_filter.new_value AS owner_text_new,
+
+            res_de_filter.old_value AS res_de_old,
+            res_de_filter.new_value AS res_de_new,
+
+            sla_start_filter.old_value AS sla_start_old,
+            sla_start_filter.new_value AS sla_start_new,
+            sla_close_filter.old_value AS sla_close_old,
+            sla_close_filter.new_value AS sla_close_new,
+
+            --(CASE WHEN (owner_text_old_lag like '%Queue%' OR owner_text_old_lag like '%Service Cloud Voice Integration%') THEN owner_text_old_lag ELSE (CASE WHEN (owner_text_old_lead like '%Queue%' OR owner_text_old_lead like '%Service Cloud Voice Integration%') THEN owner_text_old_lead ELSE (CASE WHEN owner_text_old like '%Queue%' OR owner_text_old like '%Service Cloud Voice Integration%' THEN owner_text_old ELSE NULL END) END) END) AS current_queue, --Check if this worked
+            (CASE WHEN (owner_text_old_lag like '%Queue%' OR owner_text_old_lag like '%Service Cloud Voice Integration%') THEN owner_text_old_lag ELSE (CASE WHEN owner_text_old like '%Queue%' OR owner_text_old like '%Service Cloud Voice Integration%' THEN owner_text_old ELSE NULL END) END) AS current_queue,
+            --(CASE WHEN owner_text_new_lag like '%Queue' THEN owner_text_old_lag ELSE owner_text_new_lead END) AS case_to_queue,
+            --(CASE WHEN sla_close_new IS NOT NULL THEN status_de_new ELSE (CASE WHEN (owner_text_new_lag like '%Queue%' OR owner_text_new_lag like '%Service Cloud Voice Integration%') THEN owner_text_old_lag ELSE (CASE WHEN (owner_text_new_lead like '%Queue%' OR owner_text_new_lead like '%Service Cloud Voice Integration%') THEN owner_text_new_lead ELSE (CASE WHEN owner_text_new like '%Queue%' OR owner_text_new like '%Service Cloud Voice Integration%' THEN owner_text_new ELSE NULL END) END) END) END) AS case_to_queue --Check if this one should be used
+            (CASE WHEN sla_close_new IS NOT NULL THEN status_de_new ELSE (CASE WHEN (owner_text_new_lag like '%Queue%' OR owner_text_new_lag like '%Service Cloud Voice Integration%') THEN owner_text_old_lag ELSE (CASE WHEN (owner_text_new_lead like '%Queue%' OR owner_text_new_lead like '%Service Cloud Voice Integration%') THEN owner_text_new_lead ELSE (CASE WHEN owner_text_new like '%Queue%' OR owner_text_new like '%Service Cloud Voice Integration%' THEN owner_text_new ELSE NULL END) END) END) END) AS case_to_queue
+
+
+
+        FROM
+            (SELECT DISTINCT
+            created_date,
+            created_datetime,
+            case_id,
+            case_number,
+            created_by_id
+        FROM case_history_raw) AS distinct_case_history
+
+        LEFT JOIN origin_de_filter USING (created_datetime,case_id,case_number,created_by_id)
+
+        LEFT JOIN status_de_filter USING (created_datetime,case_id,case_number,created_by_id)
+
+        LEFT JOIN owner_text_filter USING (created_datetime,case_id,case_number,created_by_id)
+
+        LEFT JOIN res_de_filter USING (created_datetime,case_id,case_number,created_by_id)
+
+        LEFT JOIN sla_start_filter USING (created_datetime,case_id,case_number,created_by_id)
+        LEFT JOIN sla_close_filter USING (created_datetime,case_id,case_number,created_by_id)
+        )
+    WHERE rank_number = 1
+),
+
+--In this subquery what I'm doing is only showing status updates and removing 'Salesforce Automated User' Updates
+--In case_history_combined we lagged the queue ownership so that in the query below each first status update has the queue it came from
+case_step_2 AS (
+    SELECT case_step_1.*--,sf_users.*
+    FROM case_step_1
+    --LEFT JOIN sf_users ON
+    --    sf_users.current_user_id = case_history_combined.created_by_id AND
+    --    sf_users.START_DATE <= case_history_combined.created_datetime AND
+    --    sf_users.END_DATE >= case_history_combined.created_datetime
+    WHERE (status_de_new IS NOT NULL OR status_de_old IS NOT NULL) AND created_by_id != '0055e000007XQI2AAO'
+
+),
+--NOTE. Up to this point we have filtered cases down to only status updated. Lagged the queue to the first status update of the day.
+--NEXT STEPS: We are going to get handle times by status update then reassigning them with a join to the case above
+case_step_3 AS( --This Query is made to get time between status updated which we are using as handle time, outliers above 900 sec are replaced with the average times under 900
+    Select
+        avg(sec_between_status_updates) OVER (PARTITION BY created_date,created_by_id ORDER BY created_datetime) avg_sec_between_status_updates,
+        avg(sec_under_900) OVER (PARTITION BY created_date,created_by_id ORDER BY created_datetime) avg_sec_between_status_updates_under_900,
+        ROUND((CASE WHEN (sec_between_status_updates IS NULL OR sec_between_status_updates > 900) THEN avg_sec_between_status_updates_under_900 ELSE sec_between_status_updates END),2) cleaned_sec_between_status_updates,
+        *
+    FROM
+        (SELECT
+            lag(created_datetime) OVER (PARTITION BY created_date,created_by_id ORDER BY created_datetime) lag_created_datetime,
+            TIMESTAMPDIFF('seconds',lag_created_datetime,created_datetime) as sec_between_status_updates,
+            (CASE WHEN sec_between_status_updates > 900 THEN NULL ELSE sec_between_status_updates END) AS sec_under_900,
+            *
+        FROM case_step_2)
+    ),
+
+case_step_4 AS ( --Here we are joining our time between status updates with case status updates in step 2
+    SELECT CAST(CAST(to_timestamp(floor((EXTRACT(epoch from created_datetime) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
+           case_step_3.cleaned_sec_between_status_updates, case_step_2.*
+    FROM case_step_2
+    LEFT JOIN case_step_3 USING (created_datetime,case_id,created_by_id)
+),
+
+case_step_5_case_performance AS ( --IC performance level where we tied data values from SF user. I remove Maya Bastein here from snap_user_name as errors are assigned to her
+    SELECT
+        sf_users.*,case_step_4.*
+    FROM case_step_4
+    LEFT JOIN sf_users ON
+        case_step_4.created_by_id = sf_users.current_user_id AND
+        case_step_4.created_datetime >= sf_users.START_DATE AND
+        case_step_4.created_datetime <= sf_users.END_DATE
+    WHERE snap_user_name != 'Maya Bastien'
+),
+
+case_step_6_case_performance_old_queue AS ( --This will give us the old queue by date and associate
+    SELECT
+        DISTINCT case_number, created_by_id, current_queue
+    FROM case_step_5_case_performance
+    WHERE current_queue IS NOT NULL
+),
+
+case_step_6_case_performance_new_queue AS ( --This will give us the queue that a case will transfer to by day
+    SELECT
+        created_date,case_number, created_by_id, case_to_queue
+    FROM case_step_5_case_performance
+    WHERE case_to_queue IS NOT NULL
+    --ORDER BY 2 DESC
+),
+
+case_step_6_case_performance AS (
+    SELECT
+        case_step_5_case_performance.*,
+        case_step_6_case_performance_old_queue.current_queue AS current_queue_clean,
+        case_step_6_case_performance_new_queue.case_to_queue AS case_to_queue_clean
+
+    FROM case_step_5_case_performance
+    LEFT JOIN case_step_6_case_performance_old_queue USING(case_number,created_by_id)
+    LEFT JOIN case_step_6_case_performance_new_queue USING(created_date,case_number,created_by_id)
+),
+
+----These queries start to aggregate at different levels an ultimately will have different use case
+case_step_6_daily_by_team AS ( --In the inner query I am grouping daily work done by snap_profile_name and manager
+    --In the outer query I am lagging the last snap_profile_name and managers_managers to know what team did work previously
+    SELECT
+        *,
+        --IFNULL(lag(created_date) OVER (PARTITION BY case_number ORDER BY created_date),'New Case') AS last_created_date,
+        IFNULL((CASE WHEN ( lag(snap_profile_name) OVER (PARTITION BY case_number ORDER BY created_date) IS NULL AND last_ic_created_date IS NULL) THEN 'New Case' ELSE lag(snap_profile_name) OVER (PARTITION BY case_number ORDER BY created_date) END),'Unknown Transfer') AS last_snap_profile_name,
+        IFNULL((CASE WHEN ( lag(managers_manager_name) OVER (PARTITION BY case_number ORDER BY created_date) IS NULL AND last_ic_created_date IS NULL) THEN 'New Case' ELSE lag(managers_manager_name) OVER (PARTITION BY case_number ORDER BY created_date) END),'Unknown Transfer') AS last_managers_manager_name,
+        --IFNULL(lag(managers_manager_name) OVER (PARTITION BY case_number ORDER BY created_date),'New Case') AS last_managers_manager_name,
+        lag(count_status_updates) OVER (PARTITION BY case_number ORDER BY created_date) AS last_count_status_updates,
+        lag(total_handle_time) OVER (PARTITION BY case_number ORDER BY created_date) AS last_total_handle_time
+    FROM
+        (SELECT created_date,
+                 lag(created_date) OVER (PARTITION BY case_number ORDER BY created_date) AS last_ic_created_date,
+                 case_number,
+                 current_queue_clean,
+                 case_to_queue_clean,
+                 SNAP_PROFILE_NAME,
+                 managers_manager_name,
+                 IFNULL(TIMESTAMPDIFF('days', last_ic_created_date, created_date), 0)    AS days_since_last_ic,
+                 count(*)                                                                AS count_status_updates,
+                 sum(cleaned_sec_between_status_updates)                                 AS total_handle_time
+          FROM case_step_6_case_performance
+          GROUP BY created_date, case_number, snap_profile_name, managers_manager_name,current_queue_clean,case_to_queue_clean)
+
+
+),
+
+case_step_7_daily_by_team AS ( --Adding here if a case is chat/ticket/or neither
+    SELECT
+        case_step_6_daily_by_team.*,
+        case_raw_data.origin,
+        (CASE WHEN case_raw_data.zendesk_support_ticket_id_c IS NULL THEN 'Non-Zendesk' ELSE 'Zendesk' END) is_zendesk
+    FROM case_step_6_daily_by_team
+    LEFT JOIN case_raw_data USING(case_number)
+),
+
+from_step_5_get_most_recent_team AS (
+    SELECT
+        case_number,
+        --last_queue,
+        (CASE WHEN manager_name = 'Maria Soyka' THEN 'Member Engagement'
+            WHEN manager_name = 'Evan Caparelli' THEN 'Member Engagement'
+            WHEN manager_name = 'Brianna Whitaker' THEN 'Member Engagement'
+            WHEN manager_name = 'Jared Renda' THEN 'Member Engagement'
+            WHEN manager_name = 'Jason Aguayo' THEN 'Member Engagement'
+            WHEN manager_name = 'Rachel Weinstock' THEN 'Member Engagement'
+            WHEN manager_name = 'Dana Silkensen' THEN 'Member Engagement'
+            WHEN manager_name = 'Margaret Lowenberg' THEN 'Member Engagement'
+            WHEN manager_name = 'Tara Condren' THEN 'Member Engagement'
+            WHEN manager_name = 'Brandon Lane' THEN 'Member Engagement'
+            WHEN manager_name = 'Krystal Jenson' THEN 'Member Engagement'
+            WHEN manager_name = 'Sarah Brown' THEN 'Member Engagement'
+            WHEN manager_name = 'Jiela Peyman' THEN 'FCS'
+            WHEN manager_name = 'Eleanor Kenny-Smith' THEN 'Resolutions'
+            WHEN manager_name = 'Anthony Benincasa' THEN 'Member Support chat/Ticket'
+            WHEN manager_name = 'Lauren Indovino' THEN 'Member Support Phones'
+            WHEN manager_name = 'Madeline Puterbaugh' THEN 'Member Support Phones'
+            WHEN manager_name = 'Sharmane Scott' THEN 'Member Support chat/Ticket'
+            WHEN manager_name = 'Windea Hartsfield' THEN 'Member Support chat/Ticket'
+            WHEN manager_name = 'Marie Schommer' THEN 'Member Support chat/Ticket'
+            WHEN manager_name = 'Zac Mihalevich' THEN 'Member Support chat/Ticket'
+            WHEN manager_name = 'John (JJ) Castro' THEN 'Member Support Phones'
+            WHEN manager_name = 'Megan Seagren' THEN 'Member Support Phones'
+            WHEN manager_name = 'Lynn Ha' THEN 'Member Support Phones'
+            WHEN manager_name = 'Tyler Marone' THEN 'SPORT'
+            WHEN manager_name = 'Mason Miller' THEN 'ART'
+            ELSE 'Other Team' END) AS most_recent_team,
+        sum(cleaned_sec_between_status_updates) handle_time_sec
+        --count(*)
+    FROM
+            (SELECT
+            rank() OVER (PARTITION BY case_number ORDER BY  created_datetime DESC) AS rank_case_status,
+            --IFNULL(lag(owner_text_old_lag) OVER (PARTITION BY case_number ORDER BY  created_datetime),'New') AS last_queue,
+            (CASE WHEN owner_text_old_lag LIKE '%Queue%' THEN owner_text_old_lag ELSE IFNULL(lag(owner_text_old_lag) OVER (PARTITION BY case_number ORDER BY  created_datetime),owner_text_old_lead) END) AS last_queue,
+            *
+        FROM case_step_5_case_performance)
+    WHERE rank_case_status = 1
+    GROUP BY 1,2--,3
+
+)
+
+
+SELECT case_raw_data.*, from_step_5_get_most_recent_team.most_recent_team, from_step_5_get_most_recent_team.handle_time_sec
+FROM case_raw_data
+LEFT JOIN from_step_5_get_most_recent_team USING (case_number)
