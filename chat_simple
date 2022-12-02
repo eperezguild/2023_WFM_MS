@@ -1,0 +1,17 @@
+SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ) AS DATE) AS date,
+    CAST(CAST(to_timestamp(floor((EXTRACT(epoch from CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ)) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
+    sum(duration) AS check_dur_sec,
+    COUNT(*) AS chats,
+    ROUND((sum(duration)/count(*))/60,2) aht_min
+FROM
+    (SELECT
+        *,
+        row_number() OVER (PARTITION BY ID ORDER BY SESSION_START_DATE) AS row_filter
+    FROM ETL.ZENDESK_CHAT_INFO AS zendesk_chat
+    WHERE ((zendesk_chat."DEPARTMENT_NAME" ) <> 'Reimbursement'
+           AND (zendesk_chat."DEPARTMENT_NAME" ) <> 'Sponsorship' OR (zendesk_chat."DEPARTMENT_NAME" ) IS NULL))AS zendesk_chat
+           --AND (CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ) ) >= (TO_TIMESTAMP('2022-09-26')) ) AS zendesk_chat
+WHERE row_filter = 1
+GROUP BY 1,2
+ORDER BY 1 DESC
