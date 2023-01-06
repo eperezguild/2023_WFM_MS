@@ -1,4 +1,5 @@
-SELECT
+WITH logged_time_sec AS (
+    SELECT
     date,
     (CASE WHEN manager_name = 'Maria Soyka' THEN 'Member Engagement'
             WHEN manager_name = 'Evan Caparelli' THEN 'Member Engagement'
@@ -46,3 +47,133 @@ GROUP BY
     2,
     3)
 GROUP BY 1,2
+),
+
+data1 AS (SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    (CASE WHEN manager_name = 'Maria Soyka' THEN 'Member Engagement'
+            WHEN manager_name = 'Evan Caparelli' THEN 'Member Engagement'
+            WHEN manager_name = 'Brianna Whitaker' THEN 'Member Engagement'
+            WHEN manager_name = 'Jared Renda' THEN 'Member Engagement'
+            WHEN manager_name = 'Jason Aguayo' THEN 'Member Engagement'
+            WHEN manager_name = 'Rachel Weinstock' THEN 'Member Engagement'
+            WHEN manager_name = 'Dana Silkensen' THEN 'Member Engagement'
+            WHEN manager_name = 'Margaret Lowenberg' THEN 'Member Engagement'
+            WHEN manager_name = 'Tara Condren' THEN 'Member Engagement'
+            WHEN manager_name = 'Brandon Lane' THEN 'Member Engagement'
+            WHEN manager_name = 'Krystal Jenson' THEN 'Member Engagement'
+            WHEN manager_name = 'Sarah Brown' THEN 'Member Engagement'
+
+            WHEN manager_name = 'Jiela Peyman' THEN 'FCS'
+            WHEN manager_name = 'Eleanor Kenny-Smith' THEN 'Resolutions'
+
+            WHEN manager_name = 'Anthony Benincasa' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Lauren Indovino' THEN 'Member Support Phones'
+            WHEN manager_name = 'Madeline Puterbaugh' THEN 'Member Support Phones'
+            WHEN manager_name = 'Sharmane Scott' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Windea Hartsfield' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Marie Schommer' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Zac Mihalevich' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'John (JJ) Castro' THEN 'Member Support Phones'
+            WHEN manager_name = 'Megan Seagren' THEN 'Member Support Phones'
+            WHEN manager_name = 'Lynn Ha' THEN 'Member Support Phones'
+            WHEN manager_name = 'Tyler Marone' THEN 'SPORT'
+            WHEN manager_name = 'Mason Miller' THEN 'ART'
+            ELSE 'Other Team' END) AS most_recent_team,
+    shrinkage_utilization,
+    service_presence_status,
+    (CASE WHEN shrinkage_utilization = 'Utilization' AND most_recent_team = 'FCS' THEN 'productive_util'
+          WHEN shrinkage_utilization = 'Utilization' AND most_recent_team = 'SPORT' THEN 'productive_util'
+          WHEN shrinkage_utilization = 'Utilization' AND most_recent_team = 'Member Support Phones' AND service_presence_status IN ('Ready - Inbound Calls') THEN 'productive_util'
+          WHEN shrinkage_utilization = 'Utilization' AND most_recent_team = 'Member Support Chat/Ticket' AND service_presence_status IN ('Ready - Cases','Member Support Work') THEN 'productive_util'
+          WHEN shrinkage_utilization = 'Utilization' AND most_recent_team = 'Resolutions' THEN 'productive_util' ELSE 'unproductive' END) AS prod_util_num,
+    --COALESCE(SUM(CASE WHEN (stg_sf_cloud__user_service_presence.shrinkage_utilization = 'Shrinkage') THEN ( datediff(seconds,(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ))),(CONVERT_TIMEZONE('UTC', 'America/Denver',stg_sf_cloud__user_service_presence."STATUS_END_DATE"::TIMESTAMP_NTZ)))  )  ELSE NULL END), 0) AS shrinkage,
+    COALESCE(SUM(CASE WHEN (stg_sf_cloud__user_service_presence.shrinkage_utilization = 'Utilization') THEN ( datediff(seconds,(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ))),(CONVERT_TIMEZONE('UTC', 'America/Denver',stg_sf_cloud__user_service_presence."STATUS_END_DATE"::TIMESTAMP_NTZ)))  )  ELSE NULL END), 0) AS util_num,
+    COUNT(DISTINCT (stg_sf_cloud__user_service_presence."USER_NAME")) AS count_of_guild_user_name
+
+FROM "ETL"."STG_SF_CLOUD__USER_SERVICE_PRESENCE" AS stg_sf_cloud__user_service_presence
+WHERE
+    (stg_sf_cloud__user_service_presence."USER_PROFILE_NAME" ) IN ('Member Support', 'Member Support Specialist II') AND ((stg_sf_cloud__user_service_presence.shrinkage_utilization ) <> 'Meal' OR (stg_sf_cloud__user_service_presence.shrinkage_utilization ) IS NULL) --AND service_presence_status <> 'After Call Work'
+--AND shrinkage_utilization = 'Utilization' --AND most_recent_team = 'Member Support Phones'
+
+--FCS
+--Member Support chat/Ticket
+--Resolutions
+--SPORT
+--Member Support Phones
+GROUP BY
+    1,2,3,4,5
+ORDER BY
+    1 DESC),
+
+
+
+
+data2 AS (SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    (CASE WHEN manager_name = 'Maria Soyka' THEN 'Member Engagement'
+            WHEN manager_name = 'Evan Caparelli' THEN 'Member Engagement'
+            WHEN manager_name = 'Brianna Whitaker' THEN 'Member Engagement'
+            WHEN manager_name = 'Jared Renda' THEN 'Member Engagement'
+            WHEN manager_name = 'Jason Aguayo' THEN 'Member Engagement'
+            WHEN manager_name = 'Rachel Weinstock' THEN 'Member Engagement'
+            WHEN manager_name = 'Dana Silkensen' THEN 'Member Engagement'
+            WHEN manager_name = 'Margaret Lowenberg' THEN 'Member Engagement'
+            WHEN manager_name = 'Tara Condren' THEN 'Member Engagement'
+            WHEN manager_name = 'Brandon Lane' THEN 'Member Engagement'
+            WHEN manager_name = 'Krystal Jenson' THEN 'Member Engagement'
+            WHEN manager_name = 'Sarah Brown' THEN 'Member Engagement'
+            WHEN manager_name = 'Jiela Peyman' THEN 'FCS'
+            WHEN manager_name = 'Eleanor Kenny-Smith' THEN 'Resolutions'
+            WHEN manager_name = 'Anthony Benincasa' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Lauren Indovino' THEN 'Member Support Phones'
+            WHEN manager_name = 'Madeline Puterbaugh' THEN 'Member Support Phones'
+            WHEN manager_name = 'Sharmane Scott' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Windea Hartsfield' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Marie Schommer' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Zac Mihalevich' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'John (JJ) Castro' THEN 'Member Support Phones'
+            WHEN manager_name = 'Megan Seagren' THEN 'Member Support Phones'
+            WHEN manager_name = 'Lynn Ha' THEN 'Member Support Phones'
+            WHEN manager_name = 'Tyler Marone' THEN 'SPORT'
+            WHEN manager_name = 'Mason Miller' THEN 'ART'
+            ELSE 'Other Team' END) AS most_recent_team,
+    COALESCE(SUM(CASE WHEN (stg_sf_cloud__user_service_presence.shrinkage_utilization = 'Shrinkage') THEN ( datediff(seconds,(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ))),(CONVERT_TIMEZONE('UTC', 'America/Denver',stg_sf_cloud__user_service_presence."STATUS_END_DATE"::TIMESTAMP_NTZ)))  )  ELSE NULL END), 0) AS shrinkage,
+    COALESCE(SUM(CASE WHEN (stg_sf_cloud__user_service_presence.shrinkage_utilization = 'Utilization') THEN ( datediff(seconds,(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ))),(CONVERT_TIMEZONE('UTC', 'America/Denver',stg_sf_cloud__user_service_presence."STATUS_END_DATE"::TIMESTAMP_NTZ)))  )  ELSE NULL END), 0) AS util_num,
+    COUNT(DISTINCT (stg_sf_cloud__user_service_presence."USER_NAME")) AS count_of_guild_user_name,
+    count_of_guild_user_name * 28800 AS util_denom,
+    util_num/util_denom as utilization
+
+FROM "ETL"."STG_SF_CLOUD__USER_SERVICE_PRESENCE"
+     AS stg_sf_cloud__user_service_presence
+
+
+WHERE
+    (stg_sf_cloud__user_service_presence."USER_PROFILE_NAME" ) IN ('Member Support', 'Member Support Specialist II') AND ((stg_sf_cloud__user_service_presence.shrinkage_utilization ) <> 'Meal' OR (stg_sf_cloud__user_service_presence.shrinkage_utilization ) IS NULL) AND service_presence_status <> 'After Call Work'
+GROUP BY
+    1,2),
+
+
+data1_ready AS (SELECT
+ date,
+ most_recent_team,
+ sum(util_num) AS util_num_prod
+FROM data1
+WHERE prod_util_num = 'productive_util'
+GROUP BY 1,2),
+
+final_data_set AS (
+SELECT data1_ready.*, data2.util_num, data2.count_of_guild_user_name, data2.util_denom, logged_time_sec.logged_tm_less_lunch_sec
+FROM data2
+LEFT JOIN data1_ready USING (date, most_recent_team)
+LEFT JOIN logged_time_sec USING (date,most_recent_team)
+WHERE most_recent_team <> 'Other Team' AND UTIL_num >= 1 )
+
+SELECT
+    date,
+    most_recent_team,
+    sum(util_num_prod)/sum(util_denom) util_vs_8_hour_days,
+    sum(util_num_prod)/sum(logged_tm_less_lunch_sec) AS util_to_logged
+FROM final_data_set
+GROUP BY 1,2
+ORDER BY 1 desc;
