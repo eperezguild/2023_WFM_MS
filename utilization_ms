@@ -1,0 +1,48 @@
+SELECT
+    date,
+    (CASE WHEN manager_name = 'Maria Soyka' THEN 'Member Engagement'
+            WHEN manager_name = 'Evan Caparelli' THEN 'Member Engagement'
+            WHEN manager_name = 'Brianna Whitaker' THEN 'Member Engagement'
+            WHEN manager_name = 'Jared Renda' THEN 'Member Engagement'
+            WHEN manager_name = 'Jason Aguayo' THEN 'Member Engagement'
+            WHEN manager_name = 'Rachel Weinstock' THEN 'Member Engagement'
+            WHEN manager_name = 'Dana Silkensen' THEN 'Member Engagement'
+            WHEN manager_name = 'Margaret Lowenberg' THEN 'Member Engagement'
+            WHEN manager_name = 'Tara Condren' THEN 'Member Engagement'
+            WHEN manager_name = 'Brandon Lane' THEN 'Member Engagement'
+            WHEN manager_name = 'Krystal Jenson' THEN 'Member Engagement'
+            WHEN manager_name = 'Sarah Brown' THEN 'Member Engagement'
+
+            WHEN manager_name = 'Jiela Peyman' THEN 'FCS'
+            WHEN manager_name = 'Eleanor Kenny-Smith' THEN 'Resolutions'
+
+            WHEN manager_name = 'Anthony Benincasa' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Lauren Indovino' THEN 'Member Support Phones'
+            WHEN manager_name = 'Madeline Puterbaugh' THEN 'Member Support Phones'
+            WHEN manager_name = 'Sharmane Scott' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Windea Hartsfield' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Marie Schommer' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'Zac Mihalevich' THEN 'Member Support Chat/Ticket'
+            WHEN manager_name = 'John (JJ) Castro' THEN 'Member Support Phones'
+            WHEN manager_name = 'Megan Seagren' THEN 'Member Support Phones'
+            WHEN manager_name = 'Lynn Ha' THEN 'Member Support Phones'
+            WHEN manager_name = 'Tyler Marone' THEN 'SPORT'
+            WHEN manager_name = 'Mason Miller' THEN 'ART'
+            ELSE 'Other Team' END) AS most_recent_team,
+    sum(logged_tm_less_lunch_sec) AS logged_tm_less_lunch_sec
+FROM
+(SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    stg_sf_cloud__user_service_presence."MANAGER_NAME"  AS manager_name,
+    stg_sf_cloud__user_service_presence."USER_NAME"  AS "stg_sf_cloud__user_service_presence.user_name",
+    COALESCE(SUM(( datediff(seconds,(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ))),(CONVERT_TIMEZONE('UTC', 'America/Denver',stg_sf_cloud__user_service_presence."STATUS_END_DATE"::TIMESTAMP_NTZ)))  ) ), 0) AS logged_time_sec,
+    (CASE WHEN (logged_time_sec > 21600) THEN (logged_time_sec - 1800) ELSE logged_time_sec END) AS logged_tm_less_lunch_sec
+
+FROM "ETL"."STG_SF_CLOUD__USER_SERVICE_PRESENCE"
+     AS stg_sf_cloud__user_service_presence
+WHERE (CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ)) ) >= (TO_TIMESTAMP('2022-09-26')) AND (stg_sf_cloud__user_service_presence."USER_PROFILE_NAME" ) IN ('Member Resolution', 'Member Support', 'Member Support Specialist II')
+GROUP BY
+    1,
+    2,
+    3)
+GROUP BY 1,2
