@@ -1,4 +1,6 @@
-SELECT
+---DISTINCT PHONE CALLS
+WITH phone_data AS (
+  SELECT
   CAST(MT_COMPLETED_DATE_TIME as date) date,
   CAST(CAST(to_timestamp(floor((EXTRACT(epoch from MT_COMPLETED_DATE_TIME) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
   queue__name,
@@ -25,4 +27,7 @@ WHERE (sf_task."QUEUE__NAME"  LIKE '%MS -%' OR sf_task."QUEUE__NAME"  LIKE '%MR%
                                                     AND (sf_task.communication_direction ) IN ('Inbound', 'Transfer') AND CAST(MT_COMPLETED_DATE_TIME AS date) >= '2022-09-26')
 --AND sf_task.USER_UUID = '282bd69f-b97e-4c6d-a426-00acda28af2c')
 WHERE  call_rank = 1
-GROUP BY 1,2,3,4
+GROUP BY 1,2,3,4)
+
+SELECT *
+FROM phone_data;
