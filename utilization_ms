@@ -2,7 +2,7 @@ SELECT
     date,
     most_recent_team,
     sum(util_num)/ (sum(util_num) + sum(shrinkage) ) util_today,
-    sum(util_num)/ sum(logged_time_sec) util_to_logged
+    sum(util_num)/ sum(logged_tm_less_lunch_sec) util_to_logged
 FROM
 (SELECT
     CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(stg_sf_cloud__user_service_presence."STATUS_START_DATE" AS TIMESTAMP_NTZ)) AS DATE) AS date,
