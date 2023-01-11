@@ -3,31 +3,36 @@ WITH phone_data AS (
   SELECT
   CAST(MT_COMPLETED_DATE_TIME as date) date,
   CAST(CAST(to_timestamp(floor((EXTRACT(epoch from MT_COMPLETED_DATE_TIME) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
-  queue__name,
-  (CASE WHEN queue__name = 'MS - General - English' THEN 'Inbound/Transfer'
-       WHEN queue__name = 'MS - General - Spanish' THEN 'Inbound/Transfer' ELSE communication_direction END) AS COMMUNICATION_DIRECTION,
+  (CASE WHEN queue__name IN ('MS - Foreign Credentials - English','MS - Funding Payments - English','MS - General - English','MS - SPORT - English') THEN 'MS1 Eng'
+        WHEN queue__name IN ('MS - General - Spanish','MS - Foreign Credentials - Spanish','MS - Funding Payments - Spanish') THEN 'MS1 Spa'
+        WHEN queue__name = 'MR - General - English' THEN 'MR Eng'
+        WHEN queue__name = 'MR - General - Spanish' THEN 'MR Spa' ELSE queue__name END) AS queue__name,
+  --(CASE WHEN queue__name = 'MS - General - English' THEN 'Inbound/Transfer'
+   --    WHEN queue__name = 'MS - General - Spanish' THEN 'Inbound/Transfer' ELSE communication_direction END) AS COMMUNICATION_DIRECTION,
   count(*) AS calls,
+  sum(talk_time_seconds) + sum(hold_time) + (270 * count(*) ) AS total_handle_time,
   sum(talk_time_seconds) AS total_talk_time_sec,
   sum(hold_time) AS total_hold_time_sec,
-  270 AS total_acw_sec,
+  240 * count(*) AS total_acw_sec, --270 based on historical but efforts are being made to lower acw to 3 min 1.11.23
   --sum(fivenine_after_call_work_time_seconds) AS total_acw_sec,
   sum(ivr_time_seconds) AS total_ivr_time_seconds,
   sum(queue_wait_time_seconds) AS total_queue_wait_time_sec
+
 
 FROM
     (SELECT
          rank() over (PARTITION BY CAST(MT_COMPLETED_DATE_TIME AS DATE),queue__name,sf_task.USER_UUID ORDER BY MT_COMPLETED_DATE_TIME) AS call_rank,
          *
      FROM bi_base.etl.int_coaching_communications_combined AS sf_task
-LEFT JOIN ETL.DIM_USERS AS dim_users ON
-    sf_task.user_uuid = (dim_users.USER_UUID) AND
-    dim_users.PRIMARY_STATUS_START_DATE <= CAST(sf_task.MT_COMPLETED_DATE_TIME AS date) AND
-    dim_users.PRIMARY_STATUS_end_DATE >= CAST(sf_task.MT_COMPLETED_DATE_TIME AS date)
-WHERE (sf_task."QUEUE__NAME"  LIKE '%MS -%' OR sf_task."QUEUE__NAME"  LIKE '%MR%' )
+     LEFT JOIN ETL.DIM_USERS AS dim_users ON
+     sf_task.user_uuid = (dim_users.USER_UUID) AND
+     dim_users.PRIMARY_STATUS_START_DATE <= CAST(sf_task.MT_COMPLETED_DATE_TIME AS date) AND
+     dim_users.PRIMARY_STATUS_end_DATE >= CAST(sf_task.MT_COMPLETED_DATE_TIME AS date)
+     WHERE (sf_task."QUEUE__NAME"  LIKE '%MS -%' OR sf_task."QUEUE__NAME"  LIKE '%MR%' )
                                                     AND (sf_task.communication_direction ) IN ('Inbound', 'Transfer') AND CAST(MT_COMPLETED_DATE_TIME AS date) >= '2022-09-26')
 --AND sf_task.USER_UUID = '282bd69f-b97e-4c6d-a426-00acda28af2c')
 WHERE  call_rank = 1
-GROUP BY 1,2,3,4)
+GROUP BY 1,2,3)
 
 SELECT *
 FROM phone_data;
