@@ -1,0 +1,17 @@
+SELECT
+    fscl_cal.FSCL_YR,
+    fscl_cal.FSCL_MTH,
+    fscl_cal.FSCL_WK,
+    --CAST( CONVERT_TIMEZONE('UTC', 'America/Denver', TIMESTAMP::TIMESTAMP_NTZ) AS DATE) DATE, --If you want date unfilter this
+    --fscl_cal.FSCL_DT,
+    --EMPLOYER, --If you want to see employer then unfilter here and add to group by
+    COUNT(DISTINCT ( COALESCE(web_data_events_sessionized."USER_ID", web_data_events_sessionized."ANONYMOUS_ID")  ) ) AS UNIQUE_USERS,
+    COUNT(( COALESCE(web_data_events_sessionized."USER_ID", web_data_events_sessionized."ANONYMOUS_ID")  ) ) AS TOTAL_USERS
+FROM "ETL"."WEB_DATA_EVENTS_SESSIONIZED" AS web_data_events_sessionized
+LEFT JOIN GUILD_SCRATCH.EPEREZ.FSCL_CAL AS fscl_cal
+    ON CAST( CONVERT_TIMEZONE('UTC', 'America/Denver', TIMESTAMP::TIMESTAMP_NTZ) AS DATE) = CAST(fscl_cal.BGN_TM AS DATE)
+WHERE EMPLOYER IS NOT NULL --AND DY_OF_FSCL_WK IN (1,2,3,4,5)
+--WHERE Year >= '2021'
+GROUP BY
+    1,2,3
+ORDER BY 1 desc, 2 desc, 3 desc
