@@ -1,8 +1,10 @@
 SELECT
     CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ) AS DATE) AS date,
     CAST(CAST(to_timestamp(floor((EXTRACT(epoch from CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ)) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
+    DEPARTMENT_NAME AS department_name,
     sum(duration) AS check_dur_sec,
     COUNT(*) AS total_chats,
+    --(CASE WHEN RESPONSE_TIME_FIRST > 30 THEN count(*) ELSE NULL END) AS CHAT_ANS_30_SEC,
     ROUND((sum(duration)/count(*))/60,2) aht_min,
     COUNT(CASE WHEN RESPONSE_TIME_FIRST <= 30 THEN 1 ELSE NULL END) AS chat_ans_30_sec,
     COUNT(CASE WHEN RESPONSE_TIME_FIRST <= 60 THEN 1 ELSE NULL END) AS chat_ans_60_sec
@@ -15,5 +17,5 @@ FROM
            AND (zendesk_chat."DEPARTMENT_NAME" ) <> 'Sponsorship' OR (zendesk_chat."DEPARTMENT_NAME" ) IS NULL))AS zendesk_chat
            --AND (CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ) ) >= (TO_TIMESTAMP('2022-09-26')) ) AS zendesk_chat
 WHERE row_filter = 1
-GROUP BY 1,2
+GROUP BY 1,2,3
 ORDER BY 1 DESC
