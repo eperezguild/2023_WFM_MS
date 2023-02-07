@@ -2,8 +2,10 @@ SELECT
     CAST(CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ) AS DATE) AS date,
     CAST(CAST(to_timestamp(floor((EXTRACT(epoch from CONVERT_TIMEZONE('UTC', 'America/Denver', zendesk_chat."SESSION_START_DATE"::TIMESTAMP_NTZ)) / 1800)) * 1800) AS TIME)AS STRING) AS INTERVAL,
     sum(duration) AS check_dur_sec,
-    COUNT(*) AS chats,
-    ROUND((sum(duration)/count(*))/60,2) aht_min
+    COUNT(*) AS total_chats,
+    ROUND((sum(duration)/count(*))/60,2) aht_min,
+    COUNT(CASE WHEN RESPONSE_TIME_FIRST <= 30 THEN 1 ELSE NULL END) AS chat_ans_30_sec,
+    COUNT(CASE WHEN RESPONSE_TIME_FIRST <= 60 THEN 1 ELSE NULL END) AS chat_ans_60_sec
 FROM
     (SELECT
         *,
