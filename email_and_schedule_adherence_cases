@@ -1,0 +1,111 @@
+WITH final_query AS (
+
+WITH base_salesforce_event_codes AS (
+    SELECT
+    date_work_done_mt,
+    agent_id,
+    SUM(CASE WHEN state = '01 Ready - Cases' THEN minutes_cases END) AS min_ready_cases,
+    SUM(CASE WHEN state = '03 Ready - Chat' THEN minutes_cases END) AS min_ready_chat,
+    SUM(CASE WHEN state = '02 Ready - Inbound Calls' THEN minutes_cases END) AS min_ready_ib_phone,
+    SUM(CASE WHEN state IN ('Member Support Work','11 Member Support Work','09 Member Support Work') THEN minutes_cases END) AS min_member_support_work
+    FROM
+    (SELECT CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(end_time AS TIMESTAMP_NTZ)) AS DATE) AS date_work_done_mt,
+           *, TIMEDIFF(minutes,start_time,end_time) AS minutes_cases
+    FROM guild_scratch.assembled_tmp.agent_state)
+    --WHERE state IN ('01 Ready - Cases','Member Support Work','11 Member Support Work','09 Member Support Work','03 Ready - Chat') )
+
+    GROUP BY 1,2
+
+),
+
+base_assembled_event_codes AS (
+    SELECT
+    date_work_done_mt,
+    agent_id,
+    SUM(CASE WHEN name = 'Phone' THEN time_in_event_min END) AS min_ib_phone,
+    SUM(CASE WHEN name = 'Chat' THEN time_in_event_min END) AS min_chat,
+    SUM(CASE WHEN name = 'Email' THEN time_in_event_min END) AS min_email,
+    SUM(CASE WHEN name = 'Re-opened Emails' THEN time_in_event_min END) AS min_reopened_email,
+    SUM(CASE WHEN name = 'OT Email' THEN time_in_event_min END) AS min_ot_email,
+    SUM(CASE WHEN name = 'OT Re-opened Emails' THEN time_in_event_min END) AS min_ot_reopened_email
+FROM
+    (SELECT
+        CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(end_time AS TIMESTAMP_NTZ)) AS DATE) AS date_work_done_mt,
+        agent_id,
+        start_time,
+        end_time,
+        name,
+        timediff(minutes,start_time,end_time) as time_in_event_min
+    FROM guild_scratch.assembled_tmp.activity AS activity_table
+    LEFT JOIN guild_scratch.assembled_tmp.activity_type AS activity_type_table
+        on activity_table.activity_type_id = activity_type_table.id
+    GROUP BY 1,2,3,4,5)
+GROUP BY 1,2
+),
+
+base_case_work AS (
+    SELECT
+    CAST(CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(valid_to_timestamp_mt AS TIMESTAMP_NTZ)) AS DATE) AS date_work_done_mt,
+    case_owner_id,
+    SUM(CASE WHEN case_status = 'New' THEN 1 END) as cases_new,
+    SUM(CASE WHEN case_status = 'Resolved' THEN 1 END) as cases_resolved,
+    SUM(CASE WHEN case_status = 'Reopened' THEN 1 END) as cases_reopened,
+    SUM(CASE WHEN case_status NOT IN ('Resolved','New','Reopened') THEN 1 END) as cases_other
+FROM "ETL"."INT_CASE_HISTORY" AS int_case_history
+WHERE case_origin NOT IN ('Chat','Phone')
+GROUP BY 1,2
+)
+
+
+SELECT base_salesforce_event_codes.date_work_done_mt,
+       first_name,
+       last_name,
+       base_salesforce_event_codes.agent_id,
+       imported_id,
+       channels,
+       name AS team_name,
+       --agent_platform_id,
+       --agent_id,
+     min_ready_chat,
+    min_chat,
+    min_ready_cases,
+    min_member_support_work,
+    min_email,
+    min_reopened_email,
+    min_ib_phone,
+    min_ready_ib_phone
+    min_ot_email,
+    min_ot_reopened_email
+    cases_new,
+    cases_resolved,
+    cases_reopened,
+    cases_other
+
+
+
+FROM
+    base_salesforce_event_codes
+LEFT JOIN base_assembled_event_codes
+        USING(agent_id,date_work_done_mt)
+        --ON base_salesforce_event_codes.agent_id = base_assembled_event_codes.agent_id AND
+        --base_salesforce_event_codes.date_work_done_mt = base_assembled_event_codes.date_work_done_mt
+
+
+LEFT JOIN guild_scratch.assembled_tmp.people AS people_table
+    USING (agent_id)
+    --ON people_table.agent_id = base_salesforce_event_codes.agent_id
+
+LEFT JOIN guild_scratch.assembled_tmp.people_team AS people_team_table
+    ON id = people_team_table.people_id
+
+LEFT JOIN guild_scratch.assembled_tmp.team AS team_table
+  ON people_team_table.team_id = team_table.id
+
+LEFT JOIN base_case_work
+        ON case_owner_id = imported_id AND base_case_work.date_work_done_mt = base_assembled_event_codes.date_work_done_mt
+--WHERE first_name = 'Kelly'
+--WHERE agent_id = 'ff1216df-ef19-493e-bcfd-761ab7b985db'
+)
+
+SELECT *
+FROM final_query;
