@@ -162,7 +162,12 @@ UNION ALL SELECT * FROM ma_reimbursement_data
 UNION ALL SELECT * FROM ma_ta_data),
 
 ep_launch_data AS (
-SELECT
+
+  SELECT DISTINCT
+      "stg_ep_metadata.reporting_dimension" AS employer,
+      launch_date_f
+    FROM
+    (SELECT
     CASE WHEN 'employer' = 'employer' THEN (stg_ep_metadata."EMPLOYER_NAME")
               WHEN 'employer' = 'industry' THEN (stg_ep_metadata."INDUSTRY")
               WHEN 'employer' = 'pop' THEN (stg_ep_metadata."ELIGIBLE_POP_LAUNCH_BUCKET")
@@ -170,10 +175,10 @@ SELECT
               WHEN 'employer' = 'launch' THEN cast((EXTRACT(YEAR FROM stg_ep_metadata."LAUNCH_DATE" )::integer) as varchar)
               END  AS "stg_ep_metadata.reporting_dimension",
     analytic_employer_program_form.launch_date AS launch_date,
-    CAST(analytic_employer_program_form.launch_date AS DATE) AS launch_date_f,
+    CAST(analytic_employer_program_form.launch_date AS DATE) AS launch_date_f
     --analytic_employer_program_form.launch_date, 'YYYYMMDD') AS launch_date_formatted,
-    FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  AS "stg_ep_metadata.weeks_since_launch_wac",
-    COUNT(DISTINCT CASE WHEN (( CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ)  ) IS NOT NULL) THEN ( dim_users."USER_UUID"  )  ELSE NULL END) AS "dim_users.users_account_created"
+    --FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  AS "stg_ep_metadata.weeks_since_launch_wac",
+    --COUNT(DISTINCT CASE WHEN (( CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ)  ) IS NOT NULL) THEN ( dim_users."USER_UUID"  )  ELSE NULL END) AS "dim_users.users_account_created"
 FROM "ETL"."ANALYTIC_EMPLOYER_PROGRAM_FORM"
      AS analytic_employer_program_form
 FULL OUTER JOIN "ETL"."DIM_USERS"
@@ -184,7 +189,8 @@ LEFT JOIN "ETL"."STG_EP_METADATA"
 WHERE ((( stg_ep_metadata."LAUNCH_DATE"  ) >= ((DATEADD('year', -6, DATE_TRUNC('year', CURRENT_DATE())))) AND ( stg_ep_metadata."LAUNCH_DATE"  ) < ((DATEADD('year', 7, DATEADD('year', -6, DATE_TRUNC('year', CURRENT_DATE()))))))) AND (stg_ep_metadata."STATUS" ) = 'Active' AND (((( FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  ) >= 1 AND ( FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  ) <= 26)))
 GROUP BY
     1,
-    2,3,4
+    2,3)
+WHERE launch_date_f IS NOT NULL
 )
 
 
@@ -194,17 +200,18 @@ SELECT
     to_char(date,'Dy') AS down,
     EP,
     LAUNCH_DATE_F,
-    "stg_ep_metadata.weeks_since_launch_wac" AS WEEKS_SINCE_LAUNCH,
+    DATEDIFF('day',launch_date_f, date) as days_since_launch,
+    DATEDIFF('week',launch_date_f, date) as weeks_since_launch,
+    --"stg_ep_metadata.weeks_since_launch_wac" AS WEEKS_SINCE_LAUNCH,
     CASE WHEN WEEKS_SINCE_LAUNCH between 1 AND 4 THEN 'Week 1 - 4'
         WHEN WEEKS_SINCE_LAUNCH between 5 AND 8 THEN 'Week 5 - 8'
             WHEN WEEKS_SINCE_LAUNCH between 9 AND 12 THEN 'Week 9 - 12'
                 WHEN WEEKS_SINCE_LAUNCH between 13 AND 16 THEN 'Week 13 - 16'
                     WHEN WEEKS_SINCE_LAUNCH > 16 THEN 'Week 17+' END AS WEEK_GROUP,
-    "dim_users.users_account_created" AS ACCOUNTS_CREATED,
+    --"dim_users.users_account_created" AS ACCOUNTS_CREATED,
     LOB,
     CASE_TYPE,
     TOTAL AS TOTAL_VOL
 
 FROM combined_volume_data
-LEFT JOIN ep_launch_data ON combined_volume_data.date = ep_launch_data.launch_date_f AND
-                          combined_volume_data.EP = ep_launch_data."stg_ep_metadata.reporting_dimension"
+LEFT JOIN ep_launch_data ON combined_volume_data.EP = ep_launch_data.employer
