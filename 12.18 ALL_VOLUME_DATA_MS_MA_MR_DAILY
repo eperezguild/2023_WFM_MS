@@ -1,0 +1,210 @@
+With case_data_ms AS (
+    SELECT
+    CAST(int_case_history."CASE_CREATED_TIMESTAMP_MT" AS date) AS date,
+    dim_users."EMPLOYER_NAME"  AS ep,
+    'tot_cases_ms' AS lob,
+    int_case_history."CASE_TYPE"  AS case_type,
+    COUNT(DISTINCT ( int_case_history."CASE_NUMBER"  ) ) AS total
+FROM "ETL"."INT_CASE_HISTORY" AS int_case_history
+LEFT JOIN "ETL"."INT_CASE_HISTORY_SUMMARY" AS int_case_history_summary ON (int_case_history."CASE_ID") = (int_case_history_summary."CASE_ID")
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (int_case_history."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+WHERE (int_case_history."CASE_OWNER_PROFILE_NAME" ) LIKE '%Member Support%' AND ((CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) <> 'Phone' AND (CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) <> 'Chat' OR (CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) IS NULL) AND date IS NOT NULL
+GROUP BY
+    1,2,3,4
+),
+
+case_data_mr AS (
+    SELECT
+    --(TO_CHAR(TO_DATE( (TO_CHAR(TO_DATE(int_case_history."CASE_CREATED_TIMESTAMP_MT" ), 'YYYY-MM-DD'))
+    --       ), 'YYYY-MM-DD')) AS date,
+    CAST(int_case_history."CASE_CREATED_TIMESTAMP_MT" AS date) AS date,
+    dim_users."EMPLOYER_NAME"  AS ep,
+    'tot_cases_mr' AS lob,
+    int_case_history."CASE_TYPE"  AS case_type,
+    COUNT(DISTINCT ( int_case_history."CASE_NUMBER"  ) ) AS total
+FROM "ETL"."INT_CASE_HISTORY" AS int_case_history
+LEFT JOIN "ETL"."INT_CASE_HISTORY_SUMMARY" AS int_case_history_summary ON (int_case_history."CASE_ID") = (int_case_history_summary."CASE_ID")
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (int_case_history."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+WHERE (int_case_history."CASE_OWNER_PROFILE_NAME" ) LIKE '%Member Resolution%' AND ((CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) <> 'Phone' AND (CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) <> 'Chat' OR (CASE WHEN int_case_history_summary.case_first_non_null_origin = 'Chat' AND (int_case_history_summary."CASE_CREATED_BY_NAME") = 'Salesforce Automated User' THEN 'Form-Offline Chat'
+            ELSE int_case_history_summary.case_first_non_null_origin END) IS NULL)
+GROUP BY
+    1,2,3,4
+),
+
+chat_data_ms AS (
+    SELECT
+    CAST( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(coaching_chats."CREATED_DATE_UTC" AS TIMESTAMP_NTZ)) AS date)  AS date,
+    dim_users."EMPLOYER_NAME"  AS ep,
+    'tot_chats_ms' AS lob,
+    stg_sf_cloud__case."TYPE"  AS case_type,
+    COUNT(DISTINCT ( coaching_chats."CHAT_ID"  ) ) AS total
+FROM "ETL"."INT_COACHING_CHATS"  AS coaching_chats
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (coaching_chats."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+LEFT JOIN "ETL"."STG_SF_CLOUD__CASE"
+     AS stg_sf_cloud__case ON (coaching_chats."CASE_ID") = (stg_sf_cloud__case."CASE_ID")
+--WHERE ((( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(coaching_chats."CREATED_DATE_UTC" AS TIMESTAMP_NTZ)) ) >= (TO_TIMESTAMP('2023-10-01')) AND ( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(coaching_chats."CREATED_DATE_UTC" AS TIMESTAMP_NTZ)) ) < (TO_TIMESTAMP('2023-11-01'))))
+GROUP BY
+    1,2,3,4
+),
+
+phone_data_ms AS (
+    SELECT
+    CAST( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(coaching_calls."CALL_STARTED_AT" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    dim_users."EMPLOYER_NAME"  AS ep,
+    'tot_calls_ms' AS lob,
+    stg_sf_cloud__case."TYPE"  AS case_type,
+    COUNT(DISTINCT ( coaching_calls."CALL_ID"  ) ) AS total
+FROM "ETL"."INT_COACHING_CALLS"  AS coaching_calls
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (coaching_calls."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+LEFT JOIN "ETL"."STG_SF_CLOUD__CASE"
+     AS stg_sf_cloud__case ON (coaching_calls."CASE_ID") = (stg_sf_cloud__case."CASE_ID")
+WHERE (coaching_calls."COMMUNICATION_DIRECTION" ) IN ('Inbound', 'Transfer') AND ((coaching_calls."QUEUE__NAME" ) <> 'MR - General - English' AND (coaching_calls."QUEUE__NAME" ) <> 'MR - General - Spanish' OR (coaching_calls."QUEUE__NAME" ) IS NULL)
+    AND date IS NOT NULL
+GROUP BY
+    1,2,3,4
+),
+
+phone_data_mr AS (
+    SELECT
+    CAST( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(coaching_calls."CALL_STARTED_AT" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    dim_users."EMPLOYER_NAME"  AS ep,
+    'tot_calls_mr' AS lob,
+    stg_sf_cloud__case."TYPE"  AS case_type,
+    COUNT(DISTINCT ( coaching_calls."CALL_ID"  ) ) AS total
+FROM "ETL"."INT_COACHING_CALLS"  AS coaching_calls
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (coaching_calls."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+LEFT JOIN "ETL"."STG_SF_CLOUD__CASE"
+     AS stg_sf_cloud__case ON (coaching_calls."CASE_ID") = (stg_sf_cloud__case."CASE_ID")
+WHERE (coaching_calls."COMMUNICATION_DIRECTION" ) IN ('Inbound', 'Transfer') AND (coaching_calls."QUEUE__NAME" ) IN ('MR - General - English', 'MR - General - Spanish')
+GROUP BY
+    1,2,3,4
+),
+
+ma_case_data AS (
+    SELECT
+    CAST(int_case_history."VALID_FROM_TIMESTAMP_MT" AS DATE) AS date,
+    dim_users."EMPLOYER_NAME"  AS "dim_users.employer_name",
+    int_case_history."CASE_OWNER_NAME"  AS "int_case_history.case_owner_name",
+    int_case_history."CASE_TYPE"  AS "int_case_history.case_type",
+    COUNT(DISTINCT ( int_case_history."CASE_ID"  ) ) AS "int_case_history.count_distinct_case_id"
+FROM "ETL"."INT_CASE_HISTORY" AS int_case_history
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (int_case_history."USER_UUID") = (dim_users."USER_UUID") and (NVL(dim_users.is_primary_employer,TRUE))=True
+WHERE (int_case_history."CASE_OWNER_NAME" ) IN ('ART Queue', 'SPORT Escalations Queue', 'SPORT Queue', 'Transcript Requests Queue')
+GROUP BY
+    1,2,3,4
+--HAVING COUNT(DISTINCT ( int_case_history."CASE_ID"  ) ) > 0
+
+),
+
+ma_reimbursement_data AS (
+    SELECT
+    --(TO_CHAR(TO_DATE(CAST(reimbursement_request_history."START_DATE" AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')) AS "reimbursement_request_history.start_date",
+    CAST( CONVERT_TIMEZONE('UTC', 'America/Denver',CAST(reimbursement_request_history."START_DATE" AS TIMESTAMP_NTZ)) AS DATE) AS date,
+    employer_service_reporting."EMPLOYER_NAME"  AS "employer_service_reporting.employer_name",
+    CASE WHEN (reimbursement_request_history."PEC_OR_RR") = 'pre_eligibility_check' THEN 'TR Application' ELSE CASE WHEN (reimbursement_requests."REIMBURSEMENT_CATEGORY") = 'in_network' THEN 'INR' ELSE CASE WHEN (reimbursement_requests."REIMBURSEMENT_CATEGORY") = 'professional_expenses' THEN 'PEEF' ELSE 'OONR' END
+ END
+ END
+ AS request_type,
+ NULL AS case_type,
+    COUNT(DISTINCT ( reimbursement_requests."REQUEST_ID"  ) ) AS "reimbursement_requests.count_requests"
+FROM etl.report_reimbursement_state_history
+     AS reimbursement_request_history
+LEFT JOIN "ETL"."DIM_REIMBURSEMENT_REQUESTS" AS reimbursement_requests ON (reimbursement_request_history."REQUEST_ID") = (reimbursement_requests."REQUEST_ID")
+LEFT JOIN "ETL"."EMPLOYER_SERVICE_REPORTING"
+     AS employer_service_reporting ON (reimbursement_requests."EMPLOYEE_ID") = (COLLATE(employer_service_reporting."EMPLOYEE_ID",'en-ci'))
+      and (reimbursement_requests."EMPLOYER_ID") = (employer_service_reporting."EMPLOYER_ID")
+WHERE  (reimbursement_request_history."STATE" ) IN ('pre_approval_resubmitted', 'pre_approval_submitted', 'resubmitted', 'submitted')
+GROUP BY
+    1,2,3,4
+ORDER BY
+    4 DESC
+),
+
+ma_ta_data AS(
+    SELECT
+    --CASE WHEN TO_DATE(COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ))))) = COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ)))) THEN TO_CHAR(COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ)))), 'YYYY-MM-DD') ELSE TO_CHAR(DATE_TRUNC('second', COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ))))), 'YYYY-MM-DD HH24:MI:SS') END
+ --AS most_recent_sent_to_art_date,
+    CAST(CASE WHEN TO_DATE(COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ))))) = COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ)))) THEN TO_CHAR(COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ)))), 'YYYY-MM-DD') ELSE TO_CHAR(DATE_TRUNC('second', COALESCE((TO_DATE(ms2_etl_arc_process_prod.next_sent_to_review )), (TO_DATE(CONVERT_TIMEZONE('UTC', 'America/Denver',ms2_etl_arc_process_prod.sent_to_review_time::TIMESTAMP_NTZ))))), 'YYYY-MM-DD HH24:MI:SS') END AS DATE) AS date,
+    dim_users."EMPLOYER_NAME"  AS "dim_users.employer_name",
+    'TA Apps' AS lob,
+    NULL AS case_type,
+    COUNT(DISTINCT ms2_etl_arc_process_prod.education_path_id ) AS "ms2_etl_arc_process_prod.distinct_applications"
+FROM etl.report_member_admin_application_process  AS ms2_etl_arc_process_prod
+LEFT JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (dim_users."USER_UUID") = ms2_etl_arc_process_prod.user_uuid
+WHERE ((UPPER(( dim_users."EMAIL"  )) NOT LIKE UPPER('%tech-qa-eum%') OR ( dim_users."EMAIL"  ) IS NULL)) AND ((UPPER(( dim_users."USER_NAME"  )) NOT LIKE UPPER('%test %') AND UPPER(( dim_users."USER_NAME"  )) NOT LIKE UPPER('%Test%') AND UPPER(( dim_users."USER_NAME"  )) NOT LIKE UPPER('%TEST%') OR ( dim_users."USER_NAME"  ) IS NULL)) AND (dim_users."EMPLOYER_NAME" ) IS NOT NULL
+GROUP BY
+    1,
+    2
+),
+
+combined_volume_data AS (
+SELECT
+    *
+FROM case_data_ms
+UNION ALL SELECT * FROM case_data_mr
+UNION ALL SELECT * FROM chat_data_ms
+UNION ALL SELECT * FROM phone_data_ms
+UNION ALL SELECT * FROM phone_data_mr
+UNION ALL SELECT * FROM ma_case_data
+UNION ALL SELECT * FROM ma_reimbursement_data
+UNION ALL SELECT * FROM ma_ta_data),
+
+ep_launch_data AS (
+SELECT
+    CASE WHEN 'employer' = 'employer' THEN (stg_ep_metadata."EMPLOYER_NAME")
+              WHEN 'employer' = 'industry' THEN (stg_ep_metadata."INDUSTRY")
+              WHEN 'employer' = 'pop' THEN (stg_ep_metadata."ELIGIBLE_POP_LAUNCH_BUCKET")
+              WHEN 'employer' = 'sso' THEN (stg_ep_metadata."SSO_VERIFICATION")
+              WHEN 'employer' = 'launch' THEN cast((EXTRACT(YEAR FROM stg_ep_metadata."LAUNCH_DATE" )::integer) as varchar)
+              END  AS "stg_ep_metadata.reporting_dimension",
+    analytic_employer_program_form.launch_date AS launch_date,
+    CAST(analytic_employer_program_form.launch_date AS DATE) AS launch_date_f,
+    --analytic_employer_program_form.launch_date, 'YYYYMMDD') AS launch_date_formatted,
+    FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  AS "stg_ep_metadata.weeks_since_launch_wac",
+    COUNT(DISTINCT CASE WHEN (( CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ)  ) IS NOT NULL) THEN ( dim_users."USER_UUID"  )  ELSE NULL END) AS "dim_users.users_account_created"
+FROM "ETL"."ANALYTIC_EMPLOYER_PROGRAM_FORM"
+     AS analytic_employer_program_form
+FULL OUTER JOIN "ETL"."DIM_USERS"
+     AS dim_users ON (analytic_employer_program_form."USER_UUID")=(dim_users."USER_UUID")
+        AND (analytic_employer_program_form."EMPLOYER_ID")=(dim_users."EMPLOYER_ID")
+LEFT JOIN "ETL"."STG_EP_METADATA"
+     AS stg_ep_metadata ON (stg_ep_metadata."EMPLOYER_UUID") = (dim_users."EMPLOYER_ID")
+WHERE ((( stg_ep_metadata."LAUNCH_DATE"  ) >= ((DATEADD('year', -6, DATE_TRUNC('year', CURRENT_DATE())))) AND ( stg_ep_metadata."LAUNCH_DATE"  ) < ((DATEADD('year', 7, DATEADD('year', -6, DATE_TRUNC('year', CURRENT_DATE()))))))) AND (stg_ep_metadata."STATUS" ) = 'Active' AND (((( FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  ) >= 1 AND ( FLOOR(DATEDIFF(DAYS,(TO_CHAR(TO_DATE(coalesce((TO_CHAR(TO_DATE(stg_ep_metadata."FULL_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."TA_LAUNCH_DATE" ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(stg_ep_metadata."LAUNCH_DATE" ), 'YYYY-MM-DD'))) ), 'YYYY-MM-DD')),(TO_CHAR(TO_DATE(CAST(convert_timezone('America/Denver',dim_users."USER_CREATED_AT") AS TIMESTAMP_NTZ) ), 'YYYY-MM-DD')))/7) + 1  ) <= 26)))
+GROUP BY
+    1,
+    2,3,4
+)
+
+
+SELECT
+    DATE,
+    extract(DOW from date) AS DOW,
+    to_char(date,'Dy') AS down,
+    EP,
+    LAUNCH_DATE_F,
+    "stg_ep_metadata.weeks_since_launch_wac" AS WEEKS_SINCE_LAUNCH,
+    CASE WHEN WEEKS_SINCE_LAUNCH between 1 AND 4 THEN 'Week 1 - 4'
+        WHEN WEEKS_SINCE_LAUNCH between 5 AND 8 THEN 'Week 5 - 8'
+            WHEN WEEKS_SINCE_LAUNCH between 9 AND 12 THEN 'Week 9 - 12'
+                WHEN WEEKS_SINCE_LAUNCH between 13 AND 16 THEN 'Week 13 - 16'
+                    WHEN WEEKS_SINCE_LAUNCH > 16 THEN 'Week 17+' END AS WEEK_GROUP,
+    "dim_users.users_account_created" AS ACCOUNTS_CREATED,
+    LOB,
+    CASE_TYPE,
+    TOTAL AS TOTAL_VOL
+
+FROM combined_volume_data
+LEFT JOIN ep_launch_data ON combined_volume_data.date = ep_launch_data.launch_date_f AND
+                          combined_volume_data.EP = ep_launch_data."stg_ep_metadata.reporting_dimension"
